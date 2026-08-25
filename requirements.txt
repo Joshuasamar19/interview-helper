@@ -1,0 +1,6 @@
+streamlit
+streamlit-webrtc
+faster-whisper
+numpy
+pydub
+av
