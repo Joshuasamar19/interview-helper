@@ -1,0 +1,43 @@
+========================================================
+  HOW TO USE YOUR LIVE TRANSCRIBER
+========================================================
+
+-------- TO USE IT ON THIS COMPUTER ONLY --------
+
+1. Double-click:  start_local.bat   (or run in a terminal:
+   streamlit run interview_helper_local.py)
+2. Your browser opens the app.
+3. Pick your speaker, click START, paste your Claude API key.
+
+
+-------- TO OPEN IT FROM ANOTHER COMPUTER --------
+
+1. Double-click:  start_remote.bat
+2. TWO black windows open. Keep BOTH open.
+3. Look at the window titled "Tunnel". It prints a line like:
+      https://something-random.trycloudflare.com
+4. Open THAT link on any other computer or phone.
+5. It asks for a PASSWORD. Type the password (see below).
+
+NOTE: The link is NEW every time you run start_remote.bat.
+      Always copy the fresh link from the "Tunnel" window.
+
+
+-------- YOUR PASSWORD --------
+
+The password is written inside start_remote.bat on this line:
+      set APP_PASSWORD=changeme123
+
+To change it: open start_remote.bat with Notepad, change
+"changeme123" to anything you want, and save.
+
+
+-------- IMPORTANT --------
+
+* This computer must stay ON and awake while you use the link
+  from another computer.
+* Closing the two black windows stops the remote link.
+* Your Claude API key is needed for the "genius" polishing.
+  Get it at: console.anthropic.com
+
+========================================================
