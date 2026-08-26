@@ -5,3 +5,4 @@ numpy
 pydub
 av
 audioop-lts
+anthropic

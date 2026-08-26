@@ -22,6 +22,9 @@ env/
 # Streamlit
 .streamlit/secrets.toml
 
+# Logs
+*.log
+
 # OS
 .DS_Store
 Thumbs.db
