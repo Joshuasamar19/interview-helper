@@ -38,6 +38,31 @@ def load_model(model_size: str) -> WhisperModel:
     return WhisperModel(model_size, device="cpu", compute_type="int8")
 
 
+def require_password():
+    """Optional password gate. Active only when APP_PASSWORD is set (env var or
+    Streamlit secret). When unset, the app is unlocked."""
+    expected = os.environ.get("APP_PASSWORD", "")
+    if not expected:
+        try:
+            if "APP_PASSWORD" in st.secrets:
+                expected = str(st.secrets["APP_PASSWORD"])
+        except Exception:
+            pass
+    if not expected:
+        return
+    if st.session_state.get("auth_ok"):
+        return
+    st.title("🔒 Private Transcriber")
+    st.caption("This app is password protected.")
+    pw = st.text_input("Enter password", type="password")
+    if pw == expected:
+        st.session_state.auth_ok = True
+        st.rerun()
+    elif pw:
+        st.error("Incorrect password.")
+    st.stop()
+
+
 @st.cache_resource(show_spinner=False)
 def get_shared():
     """Shared state that survives reruns and is visible to the WebRTC audio
@@ -165,6 +190,9 @@ shared = get_shared()
 for key, val in [("lines", []), ("line_ids", []), ("partial", ""), ("current", "")]:
     if key not in st.session_state:
         st.session_state[key] = val
+
+# ---------- password gate (only if APP_PASSWORD is set) ----------
+require_password()
 
 # ---------- UI ----------
 st.title("🎙️ Live Transcriber")
