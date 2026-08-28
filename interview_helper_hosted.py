@@ -236,12 +236,26 @@ def audio_frame_callback(frame: av.AudioFrame):
     return frame
 
 
+# STUN finds a direct path; TURN relays audio when firewalls block a direct
+# connection (common on the cloud). The free openrelay servers cover most cases.
+RTC_CONFIG = {
+    "iceServers": [
+        {"urls": ["stun:stun.l.google.com:19302"]},
+        {"urls": ["turn:openrelay.metered.ca:80"],
+         "username": "openrelayproject", "credential": "openrelayproject"},
+        {"urls": ["turn:openrelay.metered.ca:443"],
+         "username": "openrelayproject", "credential": "openrelayproject"},
+        {"urls": ["turn:openrelay.metered.ca:443?transport=tcp"],
+         "username": "openrelayproject", "credential": "openrelayproject"},
+    ]
+}
+
 webrtc_ctx = webrtc_streamer(
     key="live-audio",
     mode=WebRtcMode.SENDONLY,
     audio_frame_callback=audio_frame_callback,
     media_stream_constraints={"video": False, "audio": True},
-    rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
+    rtc_configuration=RTC_CONFIG,
 )
 
 st.divider()
