@@ -223,6 +223,8 @@ if ai_polish and not api_key:
             "Transcription still works without it.")
 
 # ---------- WebRTC audio capture ----------
+
+
 def audio_frame_callback(frame: av.AudioFrame):
     """Runs in WebRTC's thread. Resample each mic frame to mono 16k float32
     and hand it to the transcription pipeline."""
@@ -279,8 +281,10 @@ transcript_box = st.empty()
 if webrtc_ctx.state.playing and not shared["workers_started"]:
     shared["stop_event"].clear()
     while not shared["audio_q"].empty():
-        try: shared["audio_q"].get_nowait()
-        except queue.Empty: break
+        try:
+            shared["audio_q"].get_nowait()
+        except queue.Empty:
+            break
 
     model = load_model(whisper_size)
     polish_q = queue.Queue()

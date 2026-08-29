@@ -350,14 +350,14 @@ selected_device = devices[device_names.index(selected_name)]
 
 c1, c2, c3 = st.columns(3)
 start_btn = c1.button("▶ Start", type="primary", use_container_width=True)
-stop_btn  = c2.button("⏹ Stop",  use_container_width=True)
+stop_btn = c2.button("⏹ Stop", use_container_width=True)
 clear_btn = c3.button("🗑 Clear", use_container_width=True)
 
 st.divider()
 
-status_box     = st.empty()
-level_box      = st.empty()
-caption_box    = st.empty()
+status_box = st.empty()
+level_box = st.empty()
+caption_box = st.empty()
 st.markdown("#### Full transcript")
 transcript_box = st.empty()
 
@@ -371,8 +371,10 @@ if start_btn and not st.session_state.running:
     shared["native_sr"] = None
     for q in ("result_q", "level_q", "error_q"):
         while not shared[q].empty():
-            try: shared[q].get_nowait()
-            except queue.Empty: break
+            try:
+                shared[q].get_nowait()
+            except queue.Empty:
+                break
 
     with st.spinner("Loading transcription model…"):
         _model = load_model(whisper_size)
