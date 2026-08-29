@@ -30,6 +30,40 @@ POLISH_SYSTEM = (
     "preamble, no explanation."
 )
 
+ANSWER_SYSTEM = (
+    "You are an expert interview coach assisting the user DURING a live "
+    "interview. You are given the running transcript of the conversation. "
+    "Identify the interviewer's most recent question or point, and write a "
+    "strong, natural answer the user can say out loud, in the first person "
+    "('I'). Keep it concise — about 20–45 seconds of speaking. Be specific and "
+    "confident. If there is no clear question, suggest a good thing for the "
+    "user to say next. Output ONLY the words the user should say — no preamble, "
+    "no labels, no explanation."
+)
+
+ANALYZE_SYSTEM = (
+    "You are an interview analyst. You are given the transcript of a "
+    "conversation. Provide a short, skimmable analysis in markdown with these "
+    "sections: **Summary** (2–3 sentences), **Key points** (bullets), "
+    "**Questions asked** (bullets), and **Suggestions** (bullets). Keep it brief."
+)
+
+ASSIST_MODEL = "claude-opus-4-8"
+
+
+def ai_assist(client, system, transcript, max_tokens=1024, thinking=False):
+    """Send the transcript to Claude Opus for an answer suggestion or analysis."""
+    kwargs = dict(
+        model=ASSIST_MODEL,
+        max_tokens=max_tokens,
+        system=system,
+        messages=[{"role": "user", "content": transcript}],
+    )
+    if thinking:
+        kwargs["thinking"] = {"type": "adaptive"}
+    resp = client.messages.create(**kwargs)
+    return "".join(b.text for b in resp.content if b.type == "text").strip()
+
 
 def require_password():
     """Optional password gate. Active only when APP_PASSWORD is set (env var or
@@ -267,6 +301,7 @@ shared = get_shared()
 for key, val in [
     ("lines", []), ("line_ids", []), ("running", False),
     ("partial", ""), ("current", ""), ("level", 0.0), ("threads", []),
+    ("ai_output", ""), ("ai_title", ""),
 ]:
     if key not in st.session_state:
         st.session_state[key] = val
@@ -431,6 +466,41 @@ if st.session_state.lines:
     )
 else:
     transcript_box.caption("Transcribed text will appear here.")
+
+# ---------- AI Assistant (Claude Opus) ----------
+st.divider()
+st.markdown("#### 🤖 AI Assistant")
+st.caption("Uses Claude Opus on the conversation above.")
+_a, _b = st.columns(2)
+suggest_btn = _a.button("💡 Suggest an answer", use_container_width=True)
+analyze_btn = _b.button("🔍 Analyze conversation", use_container_width=True)
+
+if suggest_btn or analyze_btn:
+    transcript = "\n".join(st.session_state.lines).strip()
+    if not transcript:
+        st.warning("No conversation yet — transcribe something first.")
+    elif not api_key.strip():
+        st.warning("Enter your Anthropic API key in the sidebar to use the AI Assistant.")
+    else:
+        _client = anthropic.Anthropic(api_key=api_key.strip())
+        try:
+            if suggest_btn:
+                with st.spinner("Claude is drafting an answer…"):
+                    st.session_state.ai_output = ai_assist(
+                        _client, ANSWER_SYSTEM, transcript, max_tokens=800)
+                st.session_state.ai_title = "💡 Suggested answer"
+            else:
+                with st.spinner("Claude is analyzing the conversation…"):
+                    st.session_state.ai_output = ai_assist(
+                        _client, ANALYZE_SYSTEM, transcript, max_tokens=1500, thinking=True)
+                st.session_state.ai_title = "🔍 Conversation analysis"
+        except Exception as e:
+            st.error(f"AI request failed: {e}")
+
+if st.session_state.ai_output:
+    with st.container(border=True):
+        st.markdown(f"**{st.session_state.ai_title}**")
+        st.markdown(st.session_state.ai_output)
 
 if st.session_state.running:
     time.sleep(REFRESH_RATE)
