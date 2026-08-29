@@ -259,6 +259,13 @@ webrtc_ctx = webrtc_streamer(
 )
 
 st.divider()
+
+if st.button("🗑 Clear transcript", use_container_width=True):
+    st.session_state.lines = []
+    st.session_state.line_ids = []
+    st.session_state.partial = ""
+    st.session_state.current = ""
+
 status_box = st.empty()
 caption_box = st.empty()
 st.markdown("#### Full transcript")
