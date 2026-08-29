@@ -11,7 +11,7 @@ from streamlit_webrtc import WebRtcMode, webrtc_streamer
 
 try:
     import anthropic
-except Exception:
+except ImportError:
     anthropic = None
 
 st.set_page_config(page_title="Live Transcriber", page_icon="🎙️", layout="centered")
@@ -259,7 +259,14 @@ webrtc_ctx = webrtc_streamer(
     key="live-audio",
     mode=WebRtcMode.SENDONLY,
     audio_frame_callback=audio_frame_callback,
-    media_stream_constraints={"video": False, "audio": True},
+    media_stream_constraints={
+        "video": False,
+        "audio": {
+            "echoCancellation": True,
+            "noiseSuppression": True,
+            "autoGainControl": True,
+        },
+    },
     rtc_configuration=RTC_CONFIG,
 )
 

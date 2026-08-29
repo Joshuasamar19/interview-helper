@@ -12,8 +12,9 @@ from faster_whisper import WhisperModel
 st.set_page_config(page_title="Live Transcriber", page_icon="🎙️", layout="centered")
 
 WHISPER_SR = 16000
-REFRESH_RATE = 0.12          # how often the UI redraws
+REFRESH_RATE = 0.3           # how often the UI redraws
 CHUNK = 512
+MAX_LINES = 400              # cap transcript length to avoid unbounded memory growth
 
 STEP_SECONDS = 0.5           # re-transcribe the growing utterance this often
 SILENCE_RMS = 0.0015         # below this = "silence"
@@ -133,6 +134,25 @@ def _resample_to_16k(segment, native_sr):
     return np.interp(indices, np.arange(len(segment)), segment).astype(np.float32)
 
 
+def reduce_noise(x):
+    """Light spectral-subtraction noise reduction: estimate a steady noise
+    floor from the quietest frequency bins and subtract it. Reduces background
+    hiss/hum so Whisper hears speech more clearly. Returns x unchanged on any
+    problem so it can never break the pipeline."""
+    try:
+        if len(x) < 1024:
+            return x
+        spectrum = np.fft.rfft(x)
+        mag = np.abs(spectrum)
+        phase = np.angle(spectrum)
+        noise_floor = np.percentile(mag, 25)          # steady background level
+        mag = np.maximum(mag - 1.5 * noise_floor, 0.0)  # subtract it
+        cleaned = np.fft.irfft(mag * np.exp(1j * phase), n=len(x))
+        return cleaned.astype(np.float32)
+    except Exception:
+        return x
+
+
 def get_loopback_devices():
     p = pyaudio.PyAudio()
     devices = []
@@ -196,7 +216,7 @@ def _capture_thread(device_info, shared, audio_q):
             p.terminate()
 
 
-def _stream_thread(whisper_model, shared, audio_q, polish_q, use_polish):
+def _stream_thread(whisper_model, shared, audio_q, polish_q, use_polish, denoise):
     """The live-caption engine. Accumulates audio into the current utterance,
     re-transcribes it every STEP_SECONDS to show growing PARTIAL text, and on a
     pause finalizes the line (and hands it to Claude for polishing)."""
@@ -218,12 +238,19 @@ def _stream_thread(whisper_model, shared, audio_q, polish_q, use_polish):
     last_partial = ""
 
     def transcribe(buf):
-        segs, _ = whisper_model.transcribe(
-            _resample_to_16k(buf, native_sr),
-            language="en", beam_size=1, best_of=1, temperature=0,
-            condition_on_previous_text=False,
-        )
-        return " ".join(s.text.strip() for s in segs).strip()
+        try:
+            audio16k = _resample_to_16k(buf, native_sr)
+            if denoise:
+                audio16k = reduce_noise(audio16k)
+            segs, _ = whisper_model.transcribe(
+                audio16k,
+                language="en", beam_size=1, best_of=1, temperature=0,
+                condition_on_previous_text=False,
+                vad_filter=True,          # skip non-speech noise
+            )
+            return " ".join(s.text.strip() for s in segs).strip()
+        except Exception:
+            return ""
 
     while not stop_event.is_set():
         # 1) Drain whatever audio has arrived.
@@ -332,6 +359,9 @@ with st.sidebar:
     )
     whisper_size = st.selectbox("Whisper model", ["tiny", "base", "small"], index=0,
                                 help="tiny = fastest live updates, small = most accurate.")
+    denoise = st.toggle("🔇 Noise reduction", value=True,
+                        help="Reduces background hiss/hum so noisy interviews "
+                             "transcribe more cleanly.")
 
 devices, default_name = get_loopback_devices()
 
@@ -388,7 +418,7 @@ if start_btn and not st.session_state.running:
         threading.Thread(target=_capture_thread,
                          args=(selected_device, shared, audio_q), daemon=True),
         threading.Thread(target=_stream_thread,
-                         args=(_model, shared, audio_q, polish_q, ai_polish), daemon=True),
+                         args=(_model, shared, audio_q, polish_q, ai_polish, denoise), daemon=True),
     ]
     if ai_polish:
         threads.append(threading.Thread(target=_polish_thread,
@@ -423,6 +453,9 @@ while not shared["result_q"].empty():
         st.session_state.lines.append(msg["text"])
         st.session_state.line_ids.append(msg["id"])
         st.session_state.current = msg["text"]
+        if len(st.session_state.lines) > MAX_LINES:
+            st.session_state.lines = st.session_state.lines[-MAX_LINES:]
+            st.session_state.line_ids = st.session_state.line_ids[-MAX_LINES:]
     else:  # polished — swap in place of the finalized line
         if msg["id"] in st.session_state.line_ids:
             idx = st.session_state.line_ids.index(msg["id"])
@@ -484,7 +517,8 @@ if suggest_btn or analyze_btn:
     elif not api_key.strip():
         st.warning("Enter your Anthropic API key in the sidebar to use the AI Assistant.")
     else:
-        _client = anthropic.Anthropic(api_key=api_key.strip())
+        # 30s timeout so a slow/stuck request can never freeze the app.
+        _client = anthropic.Anthropic(api_key=api_key.strip(), timeout=30.0)
         try:
             if suggest_btn:
                 with st.spinner("Claude is drafting an answer…"):
@@ -494,7 +528,7 @@ if suggest_btn or analyze_btn:
             else:
                 with st.spinner("Claude is analyzing the conversation…"):
                     st.session_state.ai_output = ai_assist(
-                        _client, ANALYZE_SYSTEM, transcript, max_tokens=1500, thinking=True)
+                        _client, ANALYZE_SYSTEM, transcript, max_tokens=1500)
                 st.session_state.ai_title = "🔍 Conversation analysis"
         except Exception as e:
             st.error(f"AI request failed: {e}")
