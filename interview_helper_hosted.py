@@ -69,6 +69,7 @@ def get_shared():
     callback and the background worker threads. Created exactly once."""
     return {
         "audio_q": queue.Queue(),     # float32 mono 16k samples from the browser mic
+        "level_q": queue.Queue(),     # floats: RMS volume for the meter
         "result_q": queue.Queue(),    # {"kind": "partial"|"final"|"polished", "id": int, "text": str}
         "stop_event": threading.Event(),
         "workers_started": False,
@@ -187,7 +188,7 @@ def _polish_thread(client, model, shared, polish_q):
 # ---------- shared + session state ----------
 shared = get_shared()
 
-for key, val in [("lines", []), ("line_ids", []), ("partial", ""), ("current", "")]:
+for key, val in [("lines", []), ("line_ids", []), ("partial", ""), ("current", ""), ("level", 0.0)]:
     if key not in st.session_state:
         st.session_state[key] = val
 
@@ -231,6 +232,8 @@ def audio_frame_callback(frame: av.AudioFrame):
         for rf in shared["resampler"].resample(frame):
             arr = rf.to_ndarray().flatten().astype(np.float32) / 32768.0
             shared["audio_q"].put(arr)
+            if len(arr):
+                shared["level_q"].put(float(np.sqrt(np.mean(arr ** 2))))
     except Exception:
         pass
     return frame
@@ -267,6 +270,7 @@ if st.button("🗑 Clear transcript", use_container_width=True):
     st.session_state.current = ""
 
 status_box = st.empty()
+level_box = st.empty()
 caption_box = st.empty()
 st.markdown("#### Full transcript")
 transcript_box = st.empty()
@@ -314,9 +318,15 @@ while not shared["result_q"].empty():
             if idx == len(st.session_state.lines) - 1:
                 st.session_state.current = msg["text"]
 
+while not shared["level_q"].empty():
+    st.session_state.level = shared["level_q"].get_nowait()
+
 # ---------- render ----------
 if webrtc_ctx.state.playing:
     status_box.success("🔴 Live — listening to your microphone")
+    rms = st.session_state.level
+    bars = int(min(rms * 500, 20))
+    level_box.markdown(f"`Vol: [{'█' * bars}{'░' * (20 - bars)}]  {rms:.4f}`")
 else:
     status_box.info("Click **START** above and allow microphone access to begin.")
 
