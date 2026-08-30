@@ -6,3 +6,4 @@ pydub
 av
 audioop-lts
 anthropic
+pyaudiowpatch; sys_platform == "win32"
