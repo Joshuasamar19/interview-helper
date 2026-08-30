@@ -38,6 +38,7 @@ def load_model(model_size: str) -> WhisperModel:
     return WhisperModel(model_size, device="cpu", compute_type="int8")
 
 
+# noinspection PyBroadException
 def require_password():
     """Optional password gate. Active only when APP_PASSWORD is set (env var or
     Streamlit secret). When unset, the app is unlocked."""
@@ -77,6 +78,7 @@ def get_shared():
     }
 
 
+# noinspection PyBroadException
 def resolve_api_key(entered: str) -> str:
     if entered and entered.strip():
         return entered.strip()
@@ -88,6 +90,7 @@ def resolve_api_key(entered: str) -> str:
     return os.environ.get("ANTHROPIC_API_KEY", "").strip()
 
 
+# noinspection PyBroadException
 def polish_text(client, model: str, raw: str) -> str:
     try:
         resp = client.messages.create(
@@ -225,6 +228,7 @@ if ai_polish and not api_key:
 # ---------- WebRTC audio capture ----------
 
 
+# noinspection PyBroadException
 def audio_frame_callback(frame: av.AudioFrame):
     """Runs in WebRTC's thread. Resample each mic frame to mono 16k float32
     and hand it to the transcription pipeline."""

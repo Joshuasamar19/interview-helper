@@ -66,6 +66,7 @@ def ai_assist(client, system, transcript, max_tokens=1024, thinking=False):
     return "".join(b.text for b in resp.content if b.type == "text").strip()
 
 
+# noinspection PyBroadException
 def require_password():
     """Optional password gate. Active only when APP_PASSWORD is set (env var or
     Streamlit secret). When no password is configured, the app is unlocked so
@@ -110,6 +111,18 @@ def load_model(model_size: str) -> WhisperModel:
     return WhisperModel(model_size, device="cpu", compute_type="int8")
 
 
+def make_client(api_key, workspace_id="", timeout=None):
+    """Build an Anthropic client. Identity-linked API keys also require a
+    workspace id, sent as the anthropic-workspace-id header."""
+    kwargs = {"api_key": api_key.strip()}
+    if workspace_id and workspace_id.strip():
+        kwargs["default_headers"] = {"anthropic-workspace-id": workspace_id.strip()}
+    if timeout is not None:
+        kwargs["timeout"] = timeout
+    return anthropic.Anthropic(**kwargs)
+
+
+# noinspection PyBroadException
 def polish_text(client: anthropic.Anthropic, model: str, raw: str) -> str:
     """Ask Claude to clean up a raw transcription fragment. Returns the raw
     text unchanged if the call fails."""
@@ -134,6 +147,7 @@ def _resample_to_16k(segment, native_sr):
     return np.interp(indices, np.arange(len(segment)), segment).astype(np.float32)
 
 
+# noinspection PyBroadException
 def reduce_noise(x):
     """Light spectral-subtraction noise reduction: estimate a steady noise
     floor from the quietest frequency bins and subtract it. Reduces background
@@ -153,6 +167,7 @@ def reduce_noise(x):
         return x
 
 
+# noinspection PyBroadException
 def get_loopback_devices():
     p = pyaudio.PyAudio()
     devices = []
@@ -174,6 +189,7 @@ def get_loopback_devices():
     return devices, default_name
 
 
+# noinspection PyBroadException
 def _capture_thread(device_info, shared, audio_q):
     """Reads system audio continuously and pushes small mono chunks to audio_q.
     Does nothing heavy, so no audio is ever dropped."""
@@ -237,6 +253,7 @@ def _stream_thread(whisper_model, shared, audio_q, polish_q, use_polish, denoise
     line_id = 0
     last_partial = ""
 
+    # noinspection PyBroadException
     def transcribe(buf):
         try:
             audio16k = _resample_to_16k(buf, native_sr)
@@ -357,6 +374,12 @@ with st.sidebar:
         value=os.environ.get("ANTHROPIC_API_KEY", ""),
         help="Get one at console.anthropic.com. Or set ANTHROPIC_API_KEY env var.",
     )
+    workspace_id = st.text_input(
+        "Workspace ID (only if your key needs it)",
+        value=os.environ.get("ANTHROPIC_WORKSPACE_ID", ""),
+        help="Only needed for identity-linked keys that ask for "
+             "'anthropic-workspace-id'. Leave blank for a normal key.",
+    )
     whisper_size = st.selectbox("Whisper model", ["tiny", "base", "small"], index=0,
                                 help="tiny = fastest live updates, small = most accurate.")
     denoise = st.toggle("🔇 Noise reduction", value=True,
@@ -409,7 +432,7 @@ if start_btn and not st.session_state.running:
     with st.spinner("Loading transcription model…"):
         _model = load_model(whisper_size)
 
-    _client = anthropic.Anthropic(api_key=api_key.strip()) if ai_polish else None
+    _client = make_client(api_key, workspace_id) if ai_polish else None
 
     audio_q = queue.Queue()
     polish_q = queue.Queue()
@@ -518,7 +541,8 @@ if suggest_btn or analyze_btn:
         st.warning("Enter your Anthropic API key in the sidebar to use the AI Assistant.")
     else:
         # 30s timeout so a slow/stuck request can never freeze the app.
-        _client = anthropic.Anthropic(api_key=api_key.strip(), timeout=30.0)
+        _client = make_client(api_key, workspace_id, timeout=30.0)
+        # noinspection PyBroadException
         try:
             if suggest_btn:
                 with st.spinner("Claude is drafting an answer…"):
