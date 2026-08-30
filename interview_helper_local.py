@@ -5,7 +5,8 @@ import time
 
 import anthropic
 import numpy as np
-import pyaudiowpatch as pyaudio
+# noinspection PyPackageRequirements
+import pyaudiowpatch as pyaudio  # Windows-only; listed in requirements with a platform marker
 import streamlit as st
 from faster_whisper import WhisperModel
 

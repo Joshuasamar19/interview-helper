@@ -4,7 +4,8 @@ Run this WHILE playing a YouTube video, then paste the full output.
 import time
 
 import numpy as np
-import pyaudiowpatch as pyaudio
+# noinspection PyPackageRequirements
+import pyaudiowpatch as pyaudio  # Windows-only; listed in requirements with a platform marker
 
 CHUNK = 512
 
