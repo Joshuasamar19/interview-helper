@@ -52,17 +52,14 @@ ANALYZE_SYSTEM = (
 ASSIST_MODEL = "claude-opus-4-8"
 
 
-def ai_assist(client, system, transcript, max_tokens=1024, thinking=False):
+def ai_assist(client, system, transcript, max_tokens=1024):
     """Send the transcript to Claude Opus for an answer suggestion or analysis."""
-    kwargs = dict(
+    resp = client.messages.create(
         model=ASSIST_MODEL,
         max_tokens=max_tokens,
         system=system,
         messages=[{"role": "user", "content": transcript}],
     )
-    if thinking:
-        kwargs["thinking"] = {"type": "adaptive"}
-    resp = client.messages.create(**kwargs)
     return "".join(b.text for b in resp.content if b.type == "text").strip()
 
 
