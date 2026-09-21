@@ -7,3 +7,4 @@ av
 audioop-lts
 anthropic
 pyaudiowpatch; sys_platform == "win32"
+pywebview; sys_platform == "win32"
