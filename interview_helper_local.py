@@ -50,6 +50,16 @@ ANALYZE_SYSTEM = (
     "**Questions asked** (bullets), and **Suggestions** (bullets). Keep it brief."
 )
 
+DIARIZE_SYSTEM = (
+    "You are given a raw transcript of a spoken conversation with no speaker "
+    "labels. Split it into a clean dialogue and label who is most likely "
+    "speaking each turn, inferring from context: use 'Interviewer:' for "
+    "questions/prompts and 'You:' for answers in an interview; otherwise use "
+    "'Speaker 1:' / 'Speaker 2:'. Keep the original wording — only split it into "
+    "labeled turns. Output only the labeled dialogue in markdown, each turn on "
+    "its own line as '**Label:** text'."
+)
+
 ASSIST_MODEL = "claude-opus-4-8"
 
 
@@ -527,11 +537,12 @@ else:
 st.divider()
 st.markdown("#### 🤖 AI Assistant")
 st.caption("Uses Claude Opus on the conversation above.")
-_a, _b = st.columns(2)
+_a, _b, _c = st.columns(3)
 suggest_btn = _a.button("💡 Suggest an answer", use_container_width=True)
 analyze_btn = _b.button("🔍 Analyze conversation", use_container_width=True)
+diarize_btn = _c.button("🗣️ Who's talking", use_container_width=True)
 
-if suggest_btn or analyze_btn:
+if suggest_btn or analyze_btn or diarize_btn:
     transcript = "\n".join(st.session_state.lines).strip()
     if not transcript:
         st.warning("No conversation yet — transcribe something first.")
@@ -547,11 +558,16 @@ if suggest_btn or analyze_btn:
                     st.session_state.ai_output = ai_assist(
                         _client, ANSWER_SYSTEM, transcript, max_tokens=800)
                 st.session_state.ai_title = "💡 Suggested answer"
-            else:
+            elif analyze_btn:
                 with st.spinner("Claude is analyzing the conversation…"):
                     st.session_state.ai_output = ai_assist(
                         _client, ANALYZE_SYSTEM, transcript, max_tokens=1500)
                 st.session_state.ai_title = "🔍 Conversation analysis"
+            else:
+                with st.spinner("Claude is sorting out who's talking…"):
+                    st.session_state.ai_output = ai_assist(
+                        _client, DIARIZE_SYSTEM, transcript, max_tokens=1500)
+                st.session_state.ai_title = "🗣️ Conversation by speaker"
         except Exception as e:
             st.error(f"AI request failed: {e}")
 
