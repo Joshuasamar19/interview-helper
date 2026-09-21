@@ -176,6 +176,32 @@ def reduce_noise(x):
 
 
 # noinspection PyBroadException
+def estimate_pitch(x, sr=WHISPER_SR):
+    """Rough average fundamental frequency (Hz) of an utterance via
+    autocorrelation. Returns 0.0 if it can't be estimated. Used to tell voices
+    apart by pitch (e.g. a lower male voice vs a higher female voice)."""
+    try:
+        if len(x) < sr // 4:
+            return 0.0
+        x = x.astype(np.float64)
+        x = x - np.mean(x)
+        if len(x) > 2 * sr:            # 2 s is plenty for a stable estimate
+            x = x[:2 * sr]
+        corr = np.correlate(x, x, mode="full")[len(x) - 1:]
+        min_lag = sr // 300            # 300 Hz upper bound
+        max_lag = sr // 80             # 80 Hz lower bound
+        if max_lag >= len(corr) or max_lag <= min_lag:
+            return 0.0
+        seg = corr[min_lag:max_lag]
+        if len(seg) == 0 or np.max(seg) <= 0:
+            return 0.0
+        peak = int(np.argmax(seg)) + min_lag
+        return sr / peak
+    except Exception:
+        return 0.0
+
+
+# noinspection PyBroadException
 def get_loopback_devices():
     p = pyaudio.PyAudio()
     devices = []
@@ -240,7 +266,8 @@ def _capture_thread(device_info, shared, audio_q):
             p.terminate()
 
 
-def _stream_thread(whisper_model, shared, audio_q, polish_q, use_polish, denoise):
+def _stream_thread(whisper_model, shared, audio_q, polish_q, use_polish,
+                   denoise, detect_speakers):
     """The live-caption engine. Accumulates audio into the current utterance,
     re-transcribes it every STEP_SECONDS to show growing PARTIAL text, and on a
     pause finalizes the line (and hands it to Claude for polishing)."""
@@ -276,6 +303,28 @@ def _stream_thread(whisper_model, shared, audio_q, polish_q, use_polish, denoise
             return " ".join(s.text.strip() for s in segs).strip()
         except Exception:
             return ""
+
+    # Voice-pitch speaker clustering: each entry is [avg_pitch_hz, count].
+    speakers = []
+
+    def assign_speaker(pitch):
+        if pitch <= 0:
+            return ""
+        tol = 40.0  # Hz — voices within this are treated as the same person
+        best_i, best_d = -1, 1e9
+        for i, (centroid, _n) in enumerate(speakers):
+            d = abs(pitch - centroid)
+            if d < best_d:
+                best_d, best_i = d, i
+        if best_i >= 0 and best_d < tol:
+            centroid, n = speakers[best_i]
+            speakers[best_i] = [(centroid * n + pitch) / (n + 1), n + 1]
+            return f"Speaker {best_i + 1}"
+        if len(speakers) < 4:
+            speakers.append([pitch, 1])
+            return f"Speaker {len(speakers)}"
+        speakers[best_i][1] += 1     # too many already: fold into nearest
+        return f"Speaker {best_i + 1}"
 
     while not stop_event.is_set():
         # 1) Drain whatever audio has arrived.
@@ -320,7 +369,12 @@ def _stream_thread(whisper_model, shared, audio_q, polish_q, use_polish, denoise
         if silent_time >= SILENCE_HANG or dur >= MAX_UTTERANCE_SEC:
             text = transcribe(utterance)
             if text:
-                result_q.put({"kind": "final", "id": line_id, "text": text})
+                speaker = ""
+                if detect_speakers:
+                    pitch = estimate_pitch(_resample_to_16k(utterance, native_sr))
+                    speaker = assign_speaker(pitch)
+                result_q.put({"kind": "final", "id": line_id, "text": text,
+                              "speaker": speaker})
                 if use_polish:
                     polish_q.put((line_id, text))
                 line_id += 1
@@ -351,7 +405,7 @@ shared = get_shared()
 
 # ---------- session state ----------
 for key, val in [
-    ("lines", []), ("line_ids", []), ("running", False),
+    ("lines", []), ("line_ids", []), ("line_speakers", []), ("running", False),
     ("partial", ""), ("current", ""), ("level", 0.0), ("threads", []),
     ("ai_output", ""), ("ai_title", ""),
 ]:
@@ -393,6 +447,9 @@ with st.sidebar:
     denoise = st.toggle("🔇 Noise reduction", value=True,
                         help="Reduces background hiss/hum so noisy interviews "
                              "transcribe more cleanly.")
+    detect_speakers = st.toggle("🗣️ Detect speakers (by voice pitch)", value=True,
+                                help="Labels each line by voice pitch — separates "
+                                     "different-sounding voices like male vs female.")
 
 devices, default_name = get_loopback_devices()
 
@@ -449,7 +506,8 @@ if start_btn and not st.session_state.running:
         threading.Thread(target=_capture_thread,
                          args=(selected_device, shared, audio_q), daemon=True),
         threading.Thread(target=_stream_thread,
-                         args=(_model, shared, audio_q, polish_q, ai_polish, denoise), daemon=True),
+                         args=(_model, shared, audio_q, polish_q, ai_polish,
+                               denoise, detect_speakers), daemon=True),
     ]
     if ai_polish:
         threads.append(threading.Thread(target=_polish_thread,
@@ -470,6 +528,7 @@ if stop_btn:
 if clear_btn:
     st.session_state.lines = []
     st.session_state.line_ids = []
+    st.session_state.line_speakers = []
     st.session_state.partial = ""
     st.session_state.current = ""
 
@@ -481,18 +540,24 @@ while not shared["result_q"].empty():
         st.session_state.partial = msg["text"]
     elif kind == "final":
         st.session_state.partial = ""
-        st.session_state.lines.append(msg["text"])
+        spk = msg.get("speaker", "")
+        line = f"{spk}: {msg['text']}" if spk else msg["text"]
+        st.session_state.lines.append(line)
         st.session_state.line_ids.append(msg["id"])
-        st.session_state.current = msg["text"]
+        st.session_state.line_speakers.append(spk)
+        st.session_state.current = line
         if len(st.session_state.lines) > MAX_LINES:
             st.session_state.lines = st.session_state.lines[-MAX_LINES:]
             st.session_state.line_ids = st.session_state.line_ids[-MAX_LINES:]
-    else:  # polished — swap in place of the finalized line
+            st.session_state.line_speakers = st.session_state.line_speakers[-MAX_LINES:]
+    else:  # polished — swap in place of the finalized line, keeping the label
         if msg["id"] in st.session_state.line_ids:
             idx = st.session_state.line_ids.index(msg["id"])
-            st.session_state.lines[idx] = msg["text"]
+            spk = st.session_state.line_speakers[idx]
+            line = f"{spk}: {msg['text']}" if spk else msg["text"]
+            st.session_state.lines[idx] = line
             if idx == len(st.session_state.lines) - 1:
-                st.session_state.current = msg["text"]
+                st.session_state.current = line
 
 while not shared["level_q"].empty():
     st.session_state.level = shared["level_q"].get_nowait()
