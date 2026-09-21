@@ -1,8 +1,8 @@
 """Desktop overlay launcher for the Live Transcriber.
 
-Runs the Streamlit app in the background and shows it inside a frameless,
-always-on-top, semi-transparent window (an "invisible interview helper").
-Drag it anywhere; press Alt+F4 to close.
+Runs the Streamlit app in the background and shows it inside an always-on-top,
+semi-transparent, resizable window (an "invisible interview helper"). Use the
+title-bar buttons to minimize / maximize / close, and drag the edges to resize.
 """
 import ctypes
 import os
@@ -83,10 +83,11 @@ def main():
         return
     window = webview.create_window(
         WINDOW_TITLE, URL,
-        width=480, height=780,
-        frameless=True,
-        on_top=True,
-        easy_drag=True,
+        width=960, height=440,          # landscape
+        min_size=(460, 280),            # can't shrink smaller than this
+        frameless=False,                # standard frame: minimize / maximize / close
+        resizable=True,                 # drag the edges to resize
+        on_top=True,                    # stays above other windows
         background_color="#1e1e2e",
     )
     window.events.closed += on_closed
